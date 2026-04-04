@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ND</title>
+    <style>
+        body { background-color: #111; color: #fff; font-family: 'Courier New', Courier, monospace; margin: 0; display: flex; height: 100vh; overflow: hidden; user-select: none; }
+        
+        #sidebar-wrapper { position: relative; display: flex; height: 100vh; margin-left: 0; transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1); z-index: 300; }
+        #sidebar-wrapper.collapsed { margin-left: -320px; }
+        
+        #controls { width: 320px; box-sizing: border-box; padding: 20px; background-color: #222; border-right: 2px solid #444; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: 100%; }
+        
+        #toggle-btn { position: absolute; top: 50%; right: -30px; transform: translateY(-50%); width: 30px; height: 80px; background-color: #222; border: 2px solid #444; border-left: none; border-radius: 0 10px 10px 0; color: #0f0; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; font-size: 16px; box-shadow: 5px 0px 15px rgba(0,255,0,0.1); transition: background-color 0.2s, color 0.2s; }
+        #toggle-btn:hover { background-color: #333; color: #fff; }
+
+        .control-group { background: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333; display: flex; flex-direction: column; gap: 10px; }
+        .control-group h3 { margin: 0; font-size: 14px; color: #aaa; border-bottom: 1px solid #444; padding-bottom: 5px; }
+
+        #nd-container { flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; background-color: #000; transition: width 0.4s; }
+
+        .knob-wrapper { display: flex; flex-direction: column; align-items: center; margin-top: 5px; }
+        .knob-container { position: relative; width: 120px; height: 120px; }
+        .knob { width: 80px; height: 80px; border-radius: 50%; background: radial-gradient(circle, #555 0%, #222 100%); position: absolute; top: 20px; left: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8), inset 0 2px 5px rgba(255,255,255,0.2); cursor: grab; transform-origin: 50% 50%; transition: transform 0.1s ease-out; }
+        .knob:active { cursor: grabbing; }
+        .knob-indicator { width: 4px; height: 20px; background: #0f0; position: absolute; top: 5px; left: 38px; border-radius: 2px; box-shadow: 0 0 5px #0f0; }
+        .tick-label { position: absolute; font-size: 10px; color: #aaa; transform: translate(-50%, -50%); font-weight: bold; }
+        .tick-label.active { color: #0f0; text-shadow: 0 0 5px #0f0; }
+
+        /* Disable touch action on canvas to prevent page scrolling while pinching */
+        #radar-canvas { border-radius: 50%; border: 2px solid #0f0; background: radial-gradient(circle, #001a00 0%, #000000 100%); box-shadow: 0 0 20px rgba(0, 255, 0, 0.1); cursor: crosshair; touch-action: none; }
+
+        #info-popup { display: none; position: absolute; top: 20px; right: 20px; width: 250px; background: rgba(10, 20, 10, 0.9); border: 1px solid #0f0; border-radius: 8px; padding: 15px; box-shadow: 0 0 15px rgba(0, 255, 0, 0.2); z-index: 200; backdrop-filter: blur(4px); }
+        #info-popup h3 { margin: 0 0 10px 0; color: yellow; border-bottom: 1px solid #333; padding-bottom: 5px; font-size: 16px; }
+        #pop-img-container { width: 100%; min-height: 20px; margin-bottom: 10px; text-align: center; }
+        #pop-img { width: 100%; border-radius: 4px; display: none; border: 1px solid #444; }
+        #photo-credit { font-size: 9px; color: #888; margin-top: 2px; display: none; }
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+        .info-label { color: #888; }
+        .info-value { color: #fff; font-weight: bold; text-align: right; }
+
+        input, select, button { background: #333; color: #fff; border: 1px solid #555; padding: 8px; font-family: inherit; border-radius: 5px; box-sizing: border-box; }
+        button { cursor: pointer; font-weight: bold; }
+        button:hover { background: #444; }
+        button.primary-btn { background: #004400; border-color: #0f0; color: #0f0; }
+        button.primary-btn:hover { background: #006600; }
+        .flex-row { display: flex; gap: 10px; }
+        .flex-row input { flex-grow: 1; text-transform: uppercase; }
+        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar-wrapper">
+        <div id="controls">
+            <h2>ND</h2>
+            
+            <div class="control-group">
+                <h3>Center Location</h3>
+                <div class="flex-row">
+                    <input type="text" id="input-icao" placeholder="ICAO (e.g. EDDF)" maxlength="4" value="EDDF">
+                    <button onclick="applyICAO()">Search</button>
+                </div>
+                <button class="primary-btn" onclick="getDeviceLocation()">📍 Use Device GPS</button>
+            </div>
+
+            <div class="control-group">
+                <h3>Filters & Data</h3>
+                <label class="checkbox-label"><input type="checkbox" id="filter-ground"> Hide Ground / Low (< 1000 ft)</label>
+                <select id="api-source" style="margin-top: 10px;">
+                    <option value="airplanes_live">api.airplanes.live</option>
+                    <option value="adsb_fi">opendata.adsb.fi</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <h3>Range (NM)</h3>
+                <div class="knob-wrapper">
+                    <div class="knob-container" id="knob-container">
+                        <div class="knob" id="knob"><div class="knob-indicator"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="triggerWorkerFetch()">Manual Refresh</button>
+            <small id="status" style="color: #888;">Initializing Core...</small>
+            
+            <div style="font-size: 10px; color: #666; margin-top: 10px;">
+                <strong>Color Key:</strong><br>
+                <span style="color:#00ff00;">■</span> < 10,000 ft<br>
+                <span style="color:#00ffff;">■</span> 10,000 - 25,000 ft<br>
+                <span style="color:#aaaaff;">■</span> > 25,000 ft<br>
+                <span style="color:#ff0000;">■</span> Emergency (7700)
+            </div>
+        </div>
+        <div id="toggle-btn" onclick="toggleDrawer()">◀</div>
+    </div>
+
+    <div id="nd-container">
+        <div id="info-popup">
+            <h3 id="pop-callsign">FLIGHT</h3>
+            <div id="pop-img-container">
+                <span id="photo-loading" style="font-size: 10px; color: #666; display: none;">Loading photo...</span>
+                <img id="pop-img" src="" alt="Aircraft Photo">
+                <div id="photo-credit"></div>
+            </div>
+            <div class="info-row"><span class="info-label">Reg:</span> <span class="info-value" id="pop-reg">--</span></div>
+            <div class="info-row"><span class="info-label">Type:</span> <span class="info-value" id="pop-type">--</span></div>
+            <div class="info-row"><span class="info-label">Alt:</span> <span class="info-value" id="pop-alt">--</span></div>
+            <div class="info-row"><span class="info-label">Speed:</span> <span class="info-value" id="pop-spd">--</span></div>
+            <div class="info-row"><span class="info-label">Hdg:</span> <span class="info-value" id="pop-hdg">--</span></div>
+            <div class="info-row"><span class="info-label">Desc:</span> <span class="info-value" id="pop-desc">--</span></div>
+        </div>
+        <canvas id="radar-canvas" width="700" height="700"></canvas>
+    </div>
+
+    <script>
+        // --- System State ---
+        let myLat = 50.8838; 
+        let myLon = 8.0210;
+        const radarSize = 700;
+        let selectedHex = null;
+        let refreshInterval;
+        
+        const aircraftState = new Map();
+        
+        // Spatial Hash Grid
+        let spatialGrid = {}; 
+        const GRID_SIZE = 50; 
+
+        // --- DOM Elements ---
+        const canvas = document.getElementById('radar-canvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const apiSelect = document.getElementById('api-source');
+        const inputIcao = document.getElementById('input-icao');
+        const filterGroundCb = document.getElementById('filter-ground');
+        const popup = document.getElementById('info-popup');
+
+        // --- Knob & Range Config ---
+        const ranges = [10, 20, 40, 80, 160, 320];
+        const angles = [-120, -72, -24, 24, 72, 120];
+        let currentRangeIndex = 1; 
+        let maxRangeNM = ranges[currentRangeIndex];
+
+        // ============================================================================
+        // 1. INLINE WEB WORKER (Multi-Threading)
+        // ============================================================================
+        const workerCode = `
+            function getHaversineMetrics(lat, lon, originLat, originLon) {
+                const R = 3440.065; // Radius of Earth in NM
+                const dLat = (lat - originLat) * Math.PI / 180;
+                const dLon = (lon - originLon) * Math.PI / 180;
+                const l1 = originLat * Math.PI / 180;
+                const l2 = lat * Math.PI / 180;
+
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(l1) * Math.cos(l2) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                const distanceNM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+                const y = Math.sin(dLon) * Math.cos(l2);
+                const x = Math.cos(l1) * Math.sin(l2) - Math.sin(l1) * Math.cos(l2) * Math.cos(dLon);
+                const bearing = Math.atan2(y, x); 
+
+                return { distanceNM, bearing };
+            }
+
+            self.onmessage = async function(e) {
+                const { url, myLat, myLon } = e.data;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data && data.ac) {
+                        const processed = data.ac.map(ac => {
+                            if (ac.lat && ac.lon) {
+                                const metrics = getHaversineMetrics(ac.lat, ac.lon, myLat, myLon);
+                                ac.distanceNM = metrics.distanceNM;
+                                ac.bearing = metrics.bearing;
+                            }
+                            return ac;
+                        }).filter(ac => ac.distanceNM !== undefined);
+                        
+                        self.postMessage({ status: 'success', payload: processed });
+                    }
+                } catch(err) {
+                    self.postMessage({ status: 'error', message: err.message });
+                }
+            };
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const dataWorker = new Worker(URL.createObjectURL(blob));
+
+        dataWorker.onmessage = function(e) {
+            if (e.data.status === 'error') {
+                statusEl.innerText = `Link Error: ${e.data.message}`;
+                return;
+            }
+
+            const now = Date.now();
+            let count = 0;
+
+            e.data.payload.forEach(incomingAc => {
+                count++;
+                let existing = aircraftState.get(incomingAc.hex);
+                
+                if (existing) {
+                    existing.history.push({ distanceNM: existing.distanceNM, bearing: existing.bearing });
+                    if (existing.history.length > 15) existing.history.shift(); 
+                    Object.assign(existing, incomingAc);
+                    existing.lastUpdate = now;
+                } else {
+                    incomingAc.history = [];
+                    incomingAc.lastUpdate = now;
+                    aircraftState.set(incomingAc.hex, incomingAc);
+                }
+            });
+
+            for (let [hex, ac] of aircraftState.entries()) {
+                if (now - ac.lastUpdate > 60000) aircraftState.delete(hex);
+            }
+
+            statusEl.innerText = `Tracking: ${count} | Updated: ${new Date().toLocaleTimeString()}`;
+        };
+
+        function triggerWorkerFetch() {
+            statusEl.innerText = `Scanning ${maxRangeNM} NM...`;
+            const url = apiSelect.value === 'airplanes_live' 
+                ? `https://api.airplanes.live/v2/point/${myLat}/${myLon}/${maxRangeNM}`
+                : `https://opendata.adsb.fi/api/v3/lat/${myLat}/lon/${myLon}/dist/${maxRangeNM}`;
+            
+            dataWorker.postMessage({ url, myLat, myLon });
+        }
+
+
+        // ============================================================================
+        // 2. MASTER RENDER LOOP (60FPS Dead Reckoning & Spatial Hashing)
+        // ============================================================================
+        function renderRadar() {
+            ctx.clearRect(0, 0, radarSize, radarSize);
+            const center = radarSize / 2;
+            const maxRadius = radarSize / 2;
+            const now = Date.now();
+            const hideGround = filterGroundCb.checked;
+
+            spatialGrid = {};
+
+            // Grid/Rings
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
+            ctx.setLineDash([4, 4]);
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+            ctx.font = "10px 'Courier New'";
+            [0.25, 0.5, 0.75, 1].forEach(pct => {
+                const r = center * pct;
+                ctx.beginPath(); ctx.arc(center, center, r, 0, 2 * Math.PI); ctx.stroke();
+                ctx.fillText((maxRangeNM * pct).toString(), center + 5, center - r + 12);
+            });
+            ctx.setLineDash([]); 
+
+            ctx.strokeStyle = 'red'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(center, center, 6, 0, 2 * Math.PI); ctx.stroke();
+
+            // Aircraft, Trails & Interpolate
+            aircraftState.forEach(ac => {
+                let alt = ac.alt_baro === 'ground' ? 0 : ac.alt_baro;
+                if (hideGround && alt < 1000) return;
+
+                const dtSeconds = Math.min((now - ac.lastUpdate) / 1000, 30); 
+                const basePxRadius = (ac.distanceNM / maxRangeNM) * maxRadius;
+                const baseX = center + basePxRadius * Math.sin(ac.bearing);
+                const baseY = center - basePxRadius * Math.cos(ac.bearing);
+
+                const speedNMs = (ac.gs || 0) / 3600; 
+                const travelDistPx = (speedNMs * dtSeconds / maxRangeNM) * maxRadius;
+                const trackRad = (ac.track || ac.mag_heading || 0) * Math.PI / 180;
+
+                const drX = baseX + travelDistPx * Math.sin(trackRad);
+                const drY = baseY - travelDistPx * Math.cos(trackRad);
+
+                if (drX < -20 || drX > radarSize + 20 || drY < -20 || drY > radarSize + 20) return;
+
+                ac.drX = drX; ac.drY = drY; 
+                const cellId = Math.floor(drX / GRID_SIZE) + ',' + Math.floor(drY / GRID_SIZE);
+                if (!spatialGrid[cellId]) spatialGrid[cellId] = [];
+                spatialGrid[cellId].push(ac);
+
+                const isEmergency = ['7700', '7600', '7500'].includes(ac.squawk);
+                const isSelected = selectedHex === ac.hex;
+                let color = '#00ffff'; 
+                if (isEmergency) color = (now % 1000 < 500) ? '#ff0000' : '#ffffff'; 
+                else if (isSelected) color = '#ffff00'; 
+                else if (alt < 10000) color = '#00ff00'; 
+                else if (alt > 25000) color = '#aaaaff'; 
+
+                // History Trails
+                if (ac.history.length > 0) {
+                    ctx.beginPath();
+                    for (let i = ac.history.length - 1; i >= 0; i--) {
+                        const histPt = ac.history[i];
+                        const hPxRad = (histPt.distanceNM / maxRangeNM) * maxRadius;
+                        const hx = center + hPxRad * Math.sin(histPt.bearing);
+                        const hy = center - hPxRad * Math.cos(histPt.bearing);
+                        
+                        if (i === ac.history.length - 1) ctx.moveTo(hx, hy);
+                        else ctx.lineTo(hx, hy);
+                    }
+                    ctx.strokeStyle = `rgba(255, 255, 255, 0.3)`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Aircraft Shape
+                ctx.save();
+                ctx.translate(drX, drY);
+                ctx.rotate(trackRad);
+                ctx.fillStyle = color; ctx.strokeStyle = isSelected ? '#ffffff' : color; ctx.lineWidth = isSelected ? 2 : 1;
+
+                const type = (ac.t || '').toUpperCase();
+                const desc = (ac.desc || '').toUpperCase();
+                
+                ctx.beginPath();
+                if (desc === 'H' || type.match(/^(EC|AS3|R44|AW|B06|UH)/)) {
+                    ctx.arc(0, 0, 4, 0, 2 * Math.PI); ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.moveTo(0, 4); ctx.lineTo(0, 11); ctx.moveTo(-3, 11); ctx.lineTo(3, 11); 
+                } else if (desc.endsWith('J') || type.match(/^(A2|A3|A4|B7|B3|E1|E7|CRJ|GLF|C17)/)) {
+                    ctx.moveTo(0, -10); ctx.lineTo(3, -2); ctx.lineTo(12, 2); ctx.lineTo(12, 4); ctx.lineTo(3, 4); ctx.lineTo(1, 10); ctx.lineTo(4, 13); ctx.lineTo(-4, 13); ctx.lineTo(-1, 10); ctx.lineTo(-3, 4); ctx.lineTo(-12, 4); ctx.lineTo(-12, 2); ctx.lineTo(-3, -2); ctx.closePath();
+                } else {
+                    ctx.moveTo(0, -8); ctx.lineTo(5, 5); ctx.lineTo(-5, 5); ctx.closePath();
+                }
+                ctx.fill(); ctx.stroke(); ctx.restore();
+
+                // TCAS Tag
+                ctx.fillStyle = color; ctx.font = "bold 10px 'Courier New'";
+                ctx.fillText((ac.flight || ac.r || ac.squawk || ac.hex).trim(), drX + 12, drY - 2);
+                let altTag = alt === 0 ? "GND" : Math.floor(alt / 100).toString().padStart(3, '0');
+                let trend = ac.baro_rate > 300 ? "↑" : (ac.baro_rate < -300 ? "↓" : "");
+                ctx.fillText(altTag + trend, drX + 12, drY + 10);
+            });
+
+            // --- NEW: LIVE POPUP UPDATE ---
+            if (selectedHex && aircraftState.has(selectedHex)) {
+                const selectedAc = aircraftState.get(selectedHex);
+                // We update the UI elements every frame so the speed/alt 
+                // changes reflect as soon as the worker gets new data.
+                updatePopupUI(selectedAc);
+            }
+
+            requestAnimationFrame(renderRadar); 
+        }
+
+        // --- IMPROVED GLOBAL CLICK DETECTION ---
+        window.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            
+            // 1. Check if the click was inside the Radar Canvas
+            const isInsideCanvas = (
+                e.clientX >= rect.left && e.clientX <= rect.right &&
+                e.clientY >= rect.top && e.clientY <= rect.bottom
+            );
+
+            // 2. Check if the click was inside the Info Popup or Sidebar
+            const isInsideUI = e.target.closest('#info-popup') || e.target.closest('#sidebar-wrapper');
+
+            if (isInsideCanvas) {
+                // Handle Aircraft Selection
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const clickX = (e.clientX - rect.left) * scaleX;
+                const clickY = (e.clientY - rect.top) * scaleY;
+                
+                const cellX = Math.floor(clickX / GRID_SIZE);
+                const cellY = Math.floor(clickY / GRID_SIZE);
+                
+                let found = null;
+                let minSqDist = 144; 
+
+                for(let ox = -1; ox <= 1; ox++) {
+                    for(let oy = -1; oy <= 1; oy++) {
+                        const id = (cellX + ox) + ',' + (cellY + oy);
+                        const bucket = spatialGrid[id];
+                        if (bucket) {
+                            bucket.forEach(ac => {
+                                const dx = clickX - (ac.drX || 0);
+                                const dy = clickY - (ac.drY || 0);
+                                const sqDist = dx*dx + dy*dy;
+                                if (sqDist < minSqDist) {
+                                    minSqDist = sqDist;
+                                    found = ac;
+                                }
+                            });
+                        }
+                    }
+                }
+                
+                if (found) {
+                    selectedHex = found.hex;
+                    showPopup(found);
+                } else {
+                    // Clicked empty space on radar
+                    selectedHex = null;
+                    popup.style.display = 'none';
+                }
+            } else if (!isInsideUI) {
+                // 3. Clicked outside both the Radar and the UI (the background)
+                selectedHex = null;
+                popup.style.display = 'none';
+            }
+        });
+
+        // --- NEW: MOUSE WHEEL ZOOM ---
+        let wheelCooldown = false;
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); // Stop page from scrolling
+            if (wheelCooldown) return;
+
+            if (e.deltaY > 0) {
+                // Scroll down = Zoom out (Increase range)
+                if (currentRangeIndex < ranges.length - 1) currentRangeIndex++;
+            } else {
+                // Scroll up = Zoom in (Decrease range)
+                if (currentRangeIndex > 0) currentRangeIndex--;
+            }
+
+            updateKnobVisuals();
+            triggerWorkerFetch();
+
+            wheelCooldown = true;
+            setTimeout(() => wheelCooldown = false, 150); // Prevent zooming through all levels instantly
+        });
+
+        // --- PINCH TO ZOOM (TOUCH) ---
+        let initialPinchDist = null;
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                initialPinchDist = Math.hypot(dx, dy);
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2 && initialPinchDist !== null) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const currentDist = Math.hypot(dx, dy);
+
+                const diff = currentDist - initialPinchDist;
+                
+                // 30px threshold so tiny finger twitches don't trigger a zoom
+                if (Math.abs(diff) > 30) { 
+                    if (diff > 0) {
+                        // Pinching OUT = Zoom in (Decrease range)
+                        if (currentRangeIndex > 0) currentRangeIndex--;
+                    } else {
+                        // Pinching IN = Zoom out (Increase range)
+                        if (currentRangeIndex < ranges.length - 1) currentRangeIndex++;
+                    }
+                    updateKnobVisuals();
+                    triggerWorkerFetch();
+                    initialPinchDist = currentDist; // Reset base distance
+                }
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', (e) => {
+            if (e.touches.length < 2) initialPinchDist = null;
+        });
+
+
+        function toggleDrawer() {
+            const wrapper = document.getElementById('sidebar-wrapper');
+            const btn = document.getElementById('toggle-btn');
+            wrapper.classList.toggle('collapsed');
+            btn.innerText = wrapper.classList.contains('collapsed') ? '▶' : '◀';
+        }
+
+        function updateCenter(lat, lon) {
+            myLat = lat; myLon = lon;
+            aircraftState.clear();
+            selectedHex = null; popup.style.display = 'none';
+            triggerWorkerFetch();
+        }
+
+        async function applyICAO() {
+            const icao = inputIcao.value.trim().toUpperCase();
+            if (icao.length < 3) return alert("Please enter a valid IATA or ICAO code.");
+            statusEl.innerText = `Geocoding ${icao}...`;
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${icao}+airport&format=json&limit=1`);
+                const data = await res.json();
+                if (data && data.length > 0) updateCenter(parseFloat(data[0].lat), parseFloat(data[0].lon));
+                else alert(`Could not resolve coordinates for airport: ${icao}.`);
+            } catch (err) { statusEl.innerText = "Error reaching Geocoding API."; }
+        }
+
+        function getDeviceLocation() {
+            statusEl.innerText = "Acquiring GPS...";
+            if ("geolocation" in navigator) navigator.geolocation.getCurrentPosition(
+                (pos) => { inputIcao.value = "GPS"; updateCenter(pos.coords.latitude, pos.coords.longitude); }, 
+                (err) => alert(`GPS Error: ${err.message}`)
+            );
+        }
+
+        inputIcao.addEventListener("keypress", (e) => { if (e.key === "Enter") { e.preventDefault(); applyICAO(); }});
+
+        // Knob Setup
+        function setupKnob() {
+            const knobContainer = document.getElementById('knob-container');
+            angles.forEach((angle, i) => {
+                const tick = document.createElement('div');
+                tick.className = `tick-label ${i === currentRangeIndex ? 'active' : ''}`;
+                tick.id = `tick-${i}`; tick.innerText = ranges[i];
+                const rad = (angle - 90) * (Math.PI / 180);
+                tick.style.left = `${60 + 50 * Math.cos(rad)}px`; tick.style.top = `${60 + 50 * Math.sin(rad)}px`;
+                knobContainer.appendChild(tick);
+            });
+            updateKnobVisuals();
+        }
+
+        function updateKnobVisuals() {
+            const knob = document.getElementById('knob');
+            knob.style.transform = `rotate(${angles[currentRangeIndex]}deg)`;
+            angles.forEach((_, i) => document.getElementById(`tick-${i}`).classList.toggle('active', i === currentRangeIndex));
+            maxRangeNM = ranges[currentRangeIndex];
+        }
+
+        let isDragging = false;
+        document.getElementById('knob').addEventListener('mousedown', () => isDragging = true);
+        window.addEventListener('mouseup', () => { if (isDragging) { isDragging = false; triggerWorkerFetch(); }});
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const rect = document.getElementById('knob-container').getBoundingClientRect();
+            let angle = Math.atan2(e.clientY - (rect.top + rect.height/2), e.clientX - (rect.left + rect.width/2)) * (180 / Math.PI) + 90;
+            if (angle < -180) angle += 360; if (angle > 180) angle -= 360;
+            let closest = 0; let min = Infinity;
+            angles.forEach((a, i) => { if (Math.abs(angle - a) < min) { min = Math.abs(angle - a); closest = i; }});
+            if (closest !== currentRangeIndex) { currentRangeIndex = closest; updateKnobVisuals(); }
+        });
+
+        async function fetchAircraftPhoto(reg) {
+            const popImg = document.getElementById('pop-img'), pLoad = document.getElementById('photo-loading'), pCred = document.getElementById('photo-credit');
+            popImg.style.display = 'none'; pCred.style.display = 'none';
+            if (!reg || reg.trim() === '') { pLoad.style.display = 'none'; return; }
+            pLoad.style.display = 'inline';
+            try {
+                const res = await fetch(`https://api.planespotters.net/pub/photos/reg/${encodeURIComponent(reg.trim())}`);
+                const data = await res.json();
+                if (data && data.photos && data.photos.length > 0) {
+                    popImg.src = data.photos[0].thumbnail_large.src;
+                    pCred.innerHTML = `Photo by <a href="${data.photos[0].link}" target="_blank" style="color:#0f0;">${data.photos[0].photographer}</a>`;
+                    popImg.onload = () => { pLoad.style.display = 'none'; popImg.style.display = 'block'; pCred.style.display = 'block'; };
+                } else pLoad.style.display = 'none';
+            } catch (err) { pLoad.style.display = 'none'; }
+        }
+
+        function showPopup(ac) {
+            popup.style.display = 'block';
+            selectedHex = ac.hex; // Ensure the ID is tracked globally
+            updatePopupUI(ac);
+            fetchAircraftPhoto(ac.r);
+        }
+
+        // New helper function to refresh the text values
+        function updatePopupUI(ac) {
+            if (!ac) return;
+            
+            document.getElementById('pop-callsign').innerText = (ac.flight || 'NO CALLSIGN').trim();
+            document.getElementById('pop-reg').innerText = ac.r || 'N/A';
+            document.getElementById('pop-type').innerText = ac.t || 'N/A';
+            
+            let alt = ac.alt_baro === 'ground' ? 'GND' : (ac.alt_baro ? `${ac.alt_baro.toLocaleString()} ft` : 'N/A');
+            document.getElementById('pop-alt').innerText = alt;
+            
+            document.getElementById('pop-spd').innerText = ac.gs ? `${Math.round(ac.gs)} kts` : 'N/A';
+            document.getElementById('pop-hdg').innerText = ac.track ? `${Math.round(ac.track)}°` : 'N/A';
+            document.getElementById('pop-desc').innerText = ac.desc || 'N/A';
+        }
+
+        apiSelect.onchange = triggerWorkerFetch;
+
+        // Init Sequence
+        setupKnob();
+        applyICAO();
+        requestAnimationFrame(renderRadar); 
+        refreshInterval = setInterval(triggerWorkerFetch, 6000); 
+
+    </script>
+</body>
+</html>
